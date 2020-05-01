@@ -12,3 +12,4 @@ python train.py  \
     --dataset_root ~/stor6/dataset/processed_dataset/video-interpolation/adobe240fps \
     --checkpoint_dir ~/stor/workspace/0331-video-interpolation/superSlowMo \
     --epochs 200 \
+    #--dataset_root /tmp/fengcheng/dataset/processed_dataset/video-interpolation/adobe240fps \
