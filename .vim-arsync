@@ -1,0 +1,7 @@
+remote_host    dub 
+remote_user    fengchan
+remote_path    ~/stor6/projects/0331-video-interpolation-comp755
+local_path    ../
+ignore_path     ["build/"]
+ignore_dotfiles 0
+auto_sync_up    0
