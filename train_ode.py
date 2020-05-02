@@ -77,6 +77,10 @@ parser.add_argument(
     help=
     "the ode solver:\n Adaptive-step: dopri5 (default), adams. \n Fixed-step: euler, midpoint, rk4, explicit_adams, fixed_adams"
 )
+parser.add_argument("--ode_step_size",
+                    type=float,
+                    default=0.0625,
+                    help="step size for fixed ode solvers")
 args = parser.parse_args()
 
 ##[TensorboardX](https://github.com/lanpa/tensorboardX)
@@ -96,7 +100,7 @@ writer = SummaryWriter(summary_dir)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # flowComp = model.UNet(6, 4) # original
-flowComp = ode_unet.ODE_UNet(6, 2, args.ode_method)
+flowComp = ode_unet.ODE_UNet(6, 2, args.ode_method, args.ode_step_size)
 ArbTimeFlowIntrp = model.UNet(20, 5)
 
 ###Initialze backward warpers for train and validation datasets

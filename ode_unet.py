@@ -78,13 +78,14 @@ class ODEfunc(nn.Module):
 
 class ODEBlock(nn.Module):
 
-    def __init__(self, odefunc, method):
+    def __init__(self, odefunc, method, step_size=0.0625):
         super(ODEBlock, self).__init__()
         self.odefunc = odefunc
 
         self.nfe = 0
         self.tol = 1e-3
         self.method = method
+        self.step_size = step_size
 
     def forward(self, ts, x):
         """TODO: Docstring for forward.
@@ -107,7 +108,7 @@ class ODEBlock(nn.Module):
                          rtol=self.tol,
                          atol=self.tol,
                          method=self.method,
-                         options={"step_size": 0.0625})
+                         options={"step_size": self.step_size})
             flow_t.append(out[1])
             flow_1.append(out[2])
 
@@ -127,7 +128,7 @@ class ODEBlock(nn.Module):
 class ODE_UNet(nn.Module):
     """ODE-UNet"""
 
-    def __init__(self, cin, cout, ode_method):
+    def __init__(self, cin, cout, ode_method, ode_step_size=0.0625):
         super(ODE_UNet, self).__init__()
 
         self.conv1 = nn.Conv2d(cin, 32, 7, stride=1, padding=3)
@@ -144,8 +145,10 @@ class ODE_UNet(nn.Module):
         self.up5 = up(64, 32)
         self.conv3 = nn.Conv2d(32, cout, 3, stride=1, padding=1)
 
-        self.flows = nn.ModuleList(
-            [ODEBlock(ODEfunc(dim=c), method=ode_method) for c in [32, 64, 128, 256, 512, 512]])
+        self.flows = nn.ModuleList([
+            ODEBlock(ODEfunc(dim=c), method=ode_method, step_size=ode_step_size)
+            for c in [32, 64, 128, 256, 512, 512]
+        ])
 
     def flow(self, t, pyramid_features):
         """
