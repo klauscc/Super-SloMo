@@ -97,17 +97,36 @@ writer = SummaryWriter(summary_dir)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # flowComp = model.UNet(6, 4) # original
 flowComp = ode_unet.ODE_UNet(6, 2, args.ode_method)
-flowComp.to(device)
-
 ArbTimeFlowIntrp = model.UNet(20, 5)
-ArbTimeFlowIntrp.to(device)
 
 ###Initialze backward warpers for train and validation datasets
 
 trainFlowBackWarp = model.backWarp(352, 352, device)
-trainFlowBackWarp = trainFlowBackWarp.to(device)
 validationFlowBackWarp = model.backWarp(640, 352, device)
-validationFlowBackWarp = validationFlowBackWarp.to(device)
+
+###Initializing VGG16 model for perceptual loss
+
+vgg16 = torchvision.models.vgg16(pretrained=True)
+vgg16_conv_4_3 = nn.Sequential(*list(vgg16.children())[0][:22])
+
+#data parallel
+if torch.cuda.device_count() > 1:
+    flowComp = nn.DataParallel(flowComp)
+    ArbTimeFlowIntrp = nn.DataParallel(ArbTimeFlowIntrp)
+    # trainFlowBackWarp = nn.DataParallel(trainFlowBackWarp)
+    # validationFlowBackWarp = nn.DataParallel(validationFlowBackWarp)
+
+    vgg16_conv_4_3 = nn.DataParallel(vgg16_conv_4_3)
+
+flowComp.to(device)
+ArbTimeFlowIntrp.to(device)
+trainFlowBackWarp.to(device)
+validationFlowBackWarp.to(device)
+
+vgg16_conv_4_3.to(device)
+
+for param in vgg16_conv_4_3.parameters():
+    param.requires_grad = False
 
 ###Load Datasets
 
@@ -155,14 +174,6 @@ optimizer = optim.Adam(params, lr=args.init_learning_rate)
 # scheduler to decrease learning rate by a factor of 10 at milestones.
 scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=0.1)
 
-###Initializing VGG16 model for perceptual loss
-
-vgg16 = torchvision.models.vgg16(pretrained=True)
-vgg16_conv_4_3 = nn.Sequential(*list(vgg16.children())[0][:22])
-vgg16_conv_4_3.to(device)
-for param in vgg16_conv_4_3.parameters():
-    param.requires_grad = False
-
 ### Validation function
 #
 
@@ -193,13 +204,13 @@ def validate():
 
             # Calculate flow from I0 and I1.
             inter_ts, inter_ts_inverse = model.get_time(validationFrameIndex, device)
-            full_ts = torch.ones([I0.shape[0]]).to(device)
-            F_t_0 = flowComp(inter_ts, torch.cat((I0, I1), dim=1))
-            F_t_1 = flowComp(inter_ts, torch.cat((I1, I0), dim=1))
+            # full_ts = torch.ones([I0.shape[0]]).to(device)
+            F_t_0, F_1_0 = flowComp(inter_ts, torch.cat((I0, I1), dim=1))
+            F_t_1, F_0_1 = flowComp(inter_ts, torch.cat((I1, I0), dim=1))
             # F_1_0 = flowComp(full_ts, torch.cat((I0, I1), dim=1))
             # F_0_1 = flowComp(full_ts, torch.cat((I1, I0), dim=1))
-            F_1_0 = F_t_0
-            F_0_1 = F_t_1
+            # F_1_0 = F_t_0
+            # F_0_1 = F_t_1
 
             g_I0_F_t_0 = validationFlowBackWarp(I0, F_t_0)
             g_I1_F_t_1 = validationFlowBackWarp(I1, F_t_1)
@@ -304,12 +315,14 @@ for epoch in range(dict1['epoch'] + 1, args.epochs):
         # Calculate flow from I0 and I1.
         inter_ts, inter_ts_inverse = model.get_time(trainFrameIndex, device)
         full_ts = torch.ones([I0.shape[0]]).to(device)
-        F_t_0 = flowComp(inter_ts, torch.cat((I0, I1), dim=1))
-        F_t_1 = flowComp(inter_ts, torch.cat((I1, I0), dim=1))
+        # F_t_0 = flowComp(inter_ts, torch.cat((I0, I1), dim=1))
+        # F_t_1 = flowComp(inter_ts, torch.cat((I1, I0), dim=1))
+        F_t_0, F_1_0 = flowComp(inter_ts, torch.cat((I0, I1), dim=1))
+        F_t_1, F_0_1 = flowComp(inter_ts, torch.cat((I1, I0), dim=1))
         # F_1_0 = flowComp(full_ts, torch.cat((I0, I1), dim=1))
         # F_0_1 = flowComp(full_ts, torch.cat((I1, I0), dim=1))
-        F_1_0 = F_t_0
-        F_0_1 = F_t_1
+        # F_1_0 = F_t_0
+        # F_0_1 = F_t_1
         """ original
         # Calculate flow between reference frames I0 and I1
         flowOut = flowComp(torch.cat((I0, I1), dim=1))

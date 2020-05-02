@@ -93,13 +93,14 @@ class ODEBlock(nn.Module):
             ts (array): time to integrate from 0. shape: (bs,) 
             x (tensor): Input to odenet. Shape: (bs, C, H, W). 
 
-        Returns: The same shape as input.
+        Returns: (flow_t, flow_1). Each flow is of the same shape as input.
 
         """
-        outs = []
         self.nfe = []
+        flow_t = []
+        flow_1 = []
         for i, t in enumerate(ts):
-            integration_time = torch.tensor([0, t]).float().type_as(x)
+            integration_time = torch.tensor([0, t, 1]).float().type_as(x)
             out = odeint(self.odefunc,
                          x[i:i + 1, ...],
                          integration_time,
@@ -107,11 +108,12 @@ class ODEBlock(nn.Module):
                          atol=self.tol,
                          method=self.method,
                          options={"step_size": 0.0625})
-            outs.append(out[1])
+            flow_t.append(out[1])
+            flow_1.append(out[2])
 
             self.nfe.append(self.odefunc.nfe)
             self.odefunc.nfe = 0
-        return torch.cat(outs, dim=0)
+        return torch.cat(flow_t, dim=0), torch.cat(flow_1, dim=0)
 
     # @property
     # def nfe(self):
@@ -161,6 +163,16 @@ class ODE_UNet(nn.Module):
             outs.append(out)
         return outs
 
+    def decode(self, ss):
+        s1, s2, s3, s4, s5, x = ss
+        x = self.up1(x, s5)
+        x = self.up2(x, s4)
+        x = self.up3(x, s3)
+        x = self.up4(x, s2)
+        x = self.up5(x, s1)
+        x = F.leaky_relu(self.conv3(x), negative_slope=0.1)
+        return x
+
     def forward(self, t, x):
         """
 
@@ -179,12 +191,10 @@ class ODE_UNet(nn.Module):
         s5 = self.down4(s4)
         x = self.down5(s5)    # c: 512
 
-        s1, s2, s3, s4, s5, x = self.flow(t, [s1, s2, s3, s4, s5, x])
+        ss = self.flow(t, [s1, s2, s3, s4, s5, x])
 
-        x = self.up1(x, s5)
-        x = self.up2(x, s4)
-        x = self.up3(x, s3)
-        x = self.up4(x, s2)
-        x = self.up5(x, s1)
-        x = F.leaky_relu(self.conv3(x), negative_slope=0.1)
-        return x
+        f_t = [s[0] for s in ss]
+        f_1 = [s[1] for s in ss]
+        f_t = self.decode(f_t)
+        f_1 = self.decode(f_1)
+        return f_t, f_1
