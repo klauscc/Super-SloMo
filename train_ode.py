@@ -81,6 +81,7 @@ parser.add_argument("--ode_step_size",
                     type=float,
                     default=0.0625,
                     help="step size for fixed ode solvers")
+parser.add_argument("--lr_scheduler", type=str, default="step", help="the scheduler: step, exp")
 args = parser.parse_args()
 
 ##[TensorboardX](https://github.com/lanpa/tensorboardX)
@@ -176,7 +177,11 @@ params = list(ArbTimeFlowIntrp.parameters()) + list(flowComp.parameters())
 
 optimizer = optim.Adam(params, lr=args.init_learning_rate)
 # scheduler to decrease learning rate by a factor of 10 at milestones.
-scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=0.1)
+print("lr_scheduler: " + args.lr_scheduler)
+if args.lr_scheduler == "step":
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=0.1)
+else:
+    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98)
 
 ### Validation function
 #
@@ -255,15 +260,16 @@ def validate():
                 validationFlowBackWarp(I0, F_1_0), I1) + L1_lossFn(
                     validationFlowBackWarp(I1, F_0_1), I0)
 
-            loss_smooth_1_0 = torch.mean(
-                torch.abs(F_1_0[:, :, :, :-1] - F_1_0[:, :, :, 1:])) + torch.mean(
-                    torch.abs(F_1_0[:, :, :-1, :] - F_1_0[:, :, 1:, :]))
-            loss_smooth_0_1 = torch.mean(
-                torch.abs(F_0_1[:, :, :, :-1] - F_0_1[:, :, :, 1:])) + torch.mean(
-                    torch.abs(F_0_1[:, :, :-1, :] - F_0_1[:, :, 1:, :]))
-            loss_smooth = loss_smooth_1_0 + loss_smooth_0_1
+            # loss_smooth_1_0 = torch.mean(
+            # torch.abs(F_1_0[:, :, :, :-1] - F_1_0[:, :, :, 1:])) + torch.mean(
+            # torch.abs(F_1_0[:, :, :-1, :] - F_1_0[:, :, 1:, :]))
+            # loss_smooth_0_1 = torch.mean(
+            # torch.abs(F_0_1[:, :, :, :-1] - F_0_1[:, :, :, 1:])) + torch.mean(
+            # torch.abs(F_0_1[:, :, :-1, :] - F_0_1[:, :, 1:, :]))
+            # loss_smooth = loss_smooth_1_0 + loss_smooth_0_1
 
-            loss = 204 * recnLoss + 102 * warpLoss + 0.005 * prcpLoss + loss_smooth
+            # loss = 204 * recnLoss + 102 * warpLoss + 0.005 * prcpLoss + loss_smooth
+            loss = 204 * recnLoss + 102 * warpLoss + 0.005 * prcpLoss
             tloss += loss.item()
 
             #psnr
@@ -302,10 +308,9 @@ for epoch in range(dict1['epoch'] + 1, args.epochs):
     valPSNR.append([])
     iLoss = 0
 
-    # Increment scheduler count
-    scheduler.step()
 
     for trainIndex, (trainData, trainFrameIndex) in enumerate(trainloader, 0):
+
 
         ## Getting the input and the target from the training set
         frame0, frameT, frame1 = trainData
@@ -374,23 +379,29 @@ for epoch in range(dict1['epoch'] + 1, args.epochs):
         warpLoss = L1_lossFn(g_I0_F_t_0, IFrame) + L1_lossFn(g_I1_F_t_1, IFrame) + L1_lossFn(
             trainFlowBackWarp(I0, F_1_0), I1) + L1_lossFn(trainFlowBackWarp(I1, F_0_1), I0)
 
-        loss_smooth_1_0 = torch.mean(
-            torch.abs(F_1_0[:, :, :, :-1] - F_1_0[:, :, :, 1:])) + torch.mean(
-                torch.abs(F_1_0[:, :, :-1, :] - F_1_0[:, :, 1:, :]))
-        loss_smooth_0_1 = torch.mean(
-            torch.abs(F_0_1[:, :, :, :-1] - F_0_1[:, :, :, 1:])) + torch.mean(
-                torch.abs(F_0_1[:, :, :-1, :] - F_0_1[:, :, 1:, :]))
-        loss_smooth = loss_smooth_1_0 + loss_smooth_0_1
+        # loss_smooth_1_0 = torch.mean(
+        # torch.abs(F_1_0[:, :, :, :-1] - F_1_0[:, :, :, 1:])) + torch.mean(
+        # torch.abs(F_1_0[:, :, :-1, :] - F_1_0[:, :, 1:, :]))
+        # loss_smooth_0_1 = torch.mean(
+        # torch.abs(F_0_1[:, :, :, :-1] - F_0_1[:, :, :, 1:])) + torch.mean(
+        # torch.abs(F_0_1[:, :, :-1, :] - F_0_1[:, :, 1:, :]))
+        # loss_smooth = loss_smooth_1_0 + loss_smooth_0_1
 
         # Total Loss - Coefficients 204 and 102 are used instead of 0.8 and 0.4
         # since the loss in paper is calculated for input pixels in range 0-255
         # and the input to our network is in range 0-1
-        loss = 204 * recnLoss + 102 * warpLoss + 0.005 * prcpLoss + loss_smooth
+        # loss = 204 * recnLoss + 102 * warpLoss + 0.005 * prcpLoss + loss_smooth
+        loss = 204 * recnLoss + 102 * warpLoss + 0.005 * prcpLoss
 
         # Backpropagate
         loss.backward()
         optimizer.step()
         iLoss += loss.item()
+
+        # Increment scheduler count
+        if args.lr_scheduler == "step":
+            scheduler.step()
+
 
         # Validation and progress every `args.progress_iter` iterations
         if ((trainIndex % args.progress_iter) == args.progress_iter - 1):
@@ -424,6 +435,7 @@ for epoch in range(dict1['epoch'] + 1, args.epochs):
             iLoss = 0
             start = time.time()
 
+
     # Create checkpoint after every `args.checkpoint_epoch` epochs
     if ((epoch % args.checkpoint_epoch) == args.checkpoint_epoch - 1):
         dict1 = {
@@ -441,3 +453,6 @@ for epoch in range(dict1['epoch'] + 1, args.epochs):
         }
         torch.save(dict1, ckpt_dir + "/SuperSloMo" + str(checkpoint_counter) + ".ckpt")
         checkpoint_counter += 1
+
+    if args.lr_scheduler == "exp":
+        scheduler.step()
